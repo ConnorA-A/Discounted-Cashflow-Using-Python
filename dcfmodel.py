@@ -51,10 +51,13 @@ def get_dcf_inputs(ticker):
             income_tax_expense = income_tax_expense[year_cols].squeeze()
             results_income_tax_expense.append(income_tax_expense)
 
+
         shares_outstanding = df[(df["standard_concept"] == "SharesFullyDilutedAverage") & (df["dimension"] == False)]
         if not shares_outstanding.empty:
             shares_outstanding = shares_outstanding[year_cols].squeeze()
             results_shares_outstanding.append(shares_outstanding)
+
+        
 
         df = cashflow_statement.to_dataframe()
         year_cols = [col for col in df.columns if col.startswith("20")]
@@ -171,8 +174,97 @@ def get_dcf_inputs(ticker):
         "cash_and_equivalents": combinded_cash_and_equivalents
     }
 
+data = get_dcf_inputs(ticker)
 
-get_dcf_inputs(ticker)
+def summarise_ratio(series):
+    mean = series.mean()
+    std = series.std()
+    return{
+        "base": mean,
+        "bear": mean - std,
+        "bull": mean + std
+    }
+
+
+
+
+revenue = data["revenue"].sort_index()
+revenue_growth = revenue.pct_change().dropna()
+rev_growth = summarise_ratio(revenue_growth)
+print(rev_growth)
+
+operating_margin = (data["operating_income"] / data["revenue"]).dropna()
+opm_change = summarise_ratio(operating_margin)
+print(opm_change)
+
+danda_revenue = (data["depreciation_and_amortization"] / data["revenue"]).dropna()
+danda_change = summarise_ratio(danda_revenue)
+print(danda_change)
+
+capex_revenue = (data["capex"] / data["revenue"]).dropna()
+capex_change = summarise_ratio(capex_revenue)
+print(capex_change)
+
+tax_rate = 0.21  # Utilising federal corporation tax rate. Effective tax rate for more volatile firms e.g. AMD caused a lot of volatility
+
+
+years = 5
+last_revenue = data["revenue"].sort_index().iloc[-1]
+growth = rev_growth["base"]
+opm = opm_change["base"]
+da = danda_change["base"]
+capex = capex_change["base"]
+tax_rate = 0.21
+
+projected_ufcf = []
+current = last_revenue
+
+for year in range(years):
+    current = current * (1 + growth)
+    ebit = current * opm
+    da_addback = current * da
+    capex_outflow = current * capex
+    nopat = ebit * (1 - tax_rate)
+    ufcf = nopat + da_addback + capex_outflow
+    projected_ufcf.append(ufcf)
+
+print(projected_ufcf)
+
+
+import yfinance as yf
+
+tax_rate = 0.21
+
+
+stock = yf.Ticker(ticker)
+info = stock.info
+
+beta = info.get("beta", 1.0)
+market_cap = info.get("marketCap", 0)
+
+ten_year_yield = yf.Ticker("^TNX").history(period="1d")["Close"].iloc[-1] / 100
+
+spx = yf.Ticker("^SP500TR").history(period="20y")["Close"]
+mr = (spx.iloc[-1] / spx.iloc[0]) ** (1/20) - 1
+
+
+total_debt = data["short_term_debt"].sort_index().iloc[-1] + data["long_term_debt"].sort_index().iloc[-1]
+
+ticker = yf.Ticker(ticker)
+interest_expense = ticker.income_stmt.loc["Interest Expense"].iloc[0]
+print(interest_expense)
+
+cost_of_equity = ten_year_yield + beta * (mr - ten_year_yield)
+cost_of_debt_pretax = interest_expense / total_debt
+cost_of_debt_aftertax = cost_of_debt_pretax * (1 - (tax_rate))
+equity_weight = market_cap / (market_cap + total_debt)
+debt_weight = total_debt / (market_cap + total_debt)
+wacc = (cost_of_equity * equity_weight) + (cost_of_debt_aftertax * debt_weight)
+print(wacc * 100)
+
+
+
+
 
 
 
