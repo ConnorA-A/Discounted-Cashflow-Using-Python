@@ -1,7 +1,0 @@
-from edgar import, set_identity
-
-set_identity("con.arnold@outlook.com")
-
-
-income_statement = company("AAPL").financials().income_statement()
-print(income_statement)
